@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-canvas text-navy-950 antialiased;
+}
+
+.mono-num {
+  font-family: "IBM Plex Mono", monospace;
+  font-weight: 600;
+}
+
+.navy-rule {
+  height: 3px;
+  background: linear-gradient(90deg, #000168 0%, #4c63aa 100%);
+  border-radius: 2px;
+}
