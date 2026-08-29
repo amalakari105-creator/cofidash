@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
-import Avatar from "../components/avatar";
+import Avatar from "../components/Avatar";
 
 const ROLE_LABELS = { super_admin: "Super admin", manager: "Manager", supervisor: "Superviseur" };
 
@@ -36,7 +36,9 @@ export default function MonCompte() {
             <p className="text-xs text-navy-500 mt-1">{ROLE_LABELS[profile?.role] ?? profile?.role}</p>
           </div>
         </div>
-        
+        <p className="text-xs text-navy-400 mt-4">
+          Photo de profil : pas encore disponible — reviendra avec l'ajout d'un stockage de fichiers.
+        </p>
       </div>
 
       <div className="bg-white rounded-card border border-navy-100 p-5">

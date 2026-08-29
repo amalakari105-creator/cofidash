@@ -9,15 +9,16 @@ import { useState } from "react";
  * Le filtre "Par shift" reste affiché mais désactivé si shiftAvailable=false
  * (ex: production, dont l'export actuel n'a pas d'horodatage par shift).
  */
-export default function FilterBar({ monthsAvailable, shiftAvailable = true, onChange }) {
+export default function FilterBar({ monthsAvailable,todayAvailable = true, shiftAvailable = true, onChange }) {
   const options = [];
-  if (monthsAvailable >= 2) options.push("jour");
+  if (monthsAvailable >= 2 && todayAvailable) options.push("jour");
   options.push("semaine");
   if (monthsAvailable >= 2) options.push("mois");
   options.push("total");
   options.push("shift");
 
-  const LABELS = { jour: "Jour", semaine: "Semaine", mois: "Mois", total: "Total", shift: "Par shift" };
+  const LABELS = { semaine: "Semaine", mois: "Mois", total: "Total", shift: "Par shift" };
+  if (todayAvailable) LABELS.jour = "Jour";
 
   const [active, setActive] = useState(options.includes("total") ? "total" : options[0]);
 

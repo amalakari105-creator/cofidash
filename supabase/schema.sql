@@ -126,19 +126,19 @@ create or replace view v_synthese_mensuelle as
 -- ============================================================
 
 create or replace function is_super_admin()
-returns boolean language sql stable security definer set search_path = public as $$
+returns boolean language sql stable as $$
   select exists (
     select 1 from profiles where id = auth.uid() and role = 'super_admin'
   );
 $$;
 
 create or replace function is_manager()
-returns boolean language sql stable security definer set search_path = public as $$
+returns boolean language sql stable as $$
   select exists (select 1 from profiles where id = auth.uid() and role = 'manager');
 $$;
 
 create or replace function my_department()
-returns text language sql stable security definer set search_path = public as $$
+returns text language sql stable as $$
   select department_id from profiles where id = auth.uid();
 $$;
 

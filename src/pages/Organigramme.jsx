@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
-import Avatar from "../components/avatar";
+import Avatar from "../components/Avatar";
 
 export default function Organigramme() {
   const [directeur, setDirecteur] = useState(null);
@@ -90,7 +90,10 @@ export default function Organigramme() {
         })}
       </div>
 
-      
+      <p className="text-xs text-navy-400 text-center">
+        Cet organigramme se met à jour automatiquement : crée les comptes manquants depuis
+        "Utilisateurs" pour qu'ils apparaissent ici.
+      </p>
     </div>
   );
 }

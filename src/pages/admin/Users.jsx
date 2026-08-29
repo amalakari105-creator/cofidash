@@ -51,18 +51,18 @@ export default function Users() {
 
     const { error } = await supabase.functions.invoke("create-user", { body: payload });
 
-setSubmitting(false);
-if (error) {
-  let message = error.message;
-  try {
-    const body = await error.context?.json();
-    if (body?.error) message = body.error;
-  } catch {
-    // corps non-JSON ou déjà consommé : on garde le message générique
-  }
-  setStatus({ type: "error", message });
-  return;
-}
+    setSubmitting(false);
+    if (error) {
+      let message = error.message;
+      try {
+        const body = await error.context?.json();
+        if (body?.error) message = body.error;
+      } catch {
+        // corps non-JSON ou déjà consommé : on garde le message générique
+      }
+      setStatus({ type: "error", message });
+      return;
+    }
     setStatus({ type: "success", message: `Utilisateur ${form.coficab_id} créé.` });
     setForm({ coficab_id: "", full_name: "", password: "", role: "supervisor", department_id: "" });
     loadUsers();

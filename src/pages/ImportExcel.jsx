@@ -60,6 +60,32 @@ const IMPORT_TYPES = {
       quantite_produite_m: Number(row.Quantite_produite_m ?? row["Quantité produite (m)"]) || null,
     }),
   },
+   synthese_mensuelle_trancannage: {
+    label: "Synthèse mensuelle du trancannage",
+    table: "synthese_mensuelle_trancannage",
+    map: (row) => ({
+      annee: Number(row.annee) || null,
+      mois_num: Number(row.mois_num) || null,
+      periode: row.periode,
+      conforme: Number(row.conforme) || 0,
+      non_conforme: Number(row.non_conforme) || 0,
+    }),
+  },
+  pannes: {
+    // Format attendu tant qu'aucun export maintenance réel n'existe : colonnes
+    // Ligne, Date_Panne, Date_Validation (optionnelle), Duree_Arret_Min (optionnelle),
+    // Code_Panne, Libelle_Panne — à ajuster dès qu'un vrai export sera disponible.
+    label: "Pannes machine (maintenance)",
+    table: "pannes",
+    map: (row) => ({
+      ligne: row.Ligne,
+      date_panne: excelDateToISO(row.Date_Panne),
+      date_validation: row.Date_Validation ? new Date(row.Date_Validation).toISOString() : null,
+      duree_arret_min: row.Duree_Arret_Min != null ? Number(row.Duree_Arret_Min) : null,
+      code_panne: row.Code_Panne,
+      libelle_panne: row.Libelle_Panne,
+    }),
+  },
 };
 
 export default function ImportExcel() {
@@ -69,26 +95,42 @@ export default function ImportExcel() {
   const [status, setStatus] = useState(null);
   const [importing, setImporting] = useState(false);
 
-  function handleFile(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setStatus(null);
+function handleFile(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  setStatus(null);
 
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const wb = XLSX.read(evt.target.result, { type: "array" });
-      const sheetName = wb.SheetNames[0];
-      const json = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { raw: true });
-      setRows(json);
-    };
-    reader.readAsArrayBuffer(file);
-  }
+  const isCsv = file.name.toLowerCase().endsWith(".csv");
+  const reader = new FileReader();
 
+  reader.onload = (evt) => {
+    let wb;
+    if (isCsv) {
+      const text = new TextDecoder("utf-8").decode(evt.target.result);
+      wb = XLSX.read(text, { type: "string", cellDates: true});
+    } else {
+      wb = XLSX.read(evt.target.result, { type: "array", codepage: 65001, cellDates: true });
+    }
+
+    const sheetName = wb.SheetNames[0];
+    const json = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {
+      raw: false,
+      dateNF: "dd/mm/yyyy",
+    
+    });
+    setRows(json);
+  };
+
+  reader.readAsArrayBuffer(file);
+}
+  
   async function handleImport() {
     setImporting(true);
     setStatus(null);
     const config = IMPORT_TYPES[importType];
-    const mapped = rows.map(config.map).map((r) => ({ ...r, imported_by: profile?.id }));
+    const mapped = rows.map(config.map).map((r) => {
+      return ({ ...r, imported_by: profile?.id })
+    });
 
     // insertion par lots de 500 pour rester raisonnable côté API
     const BATCH = 500;
@@ -142,7 +184,7 @@ export default function ImportExcel() {
 
         <div>
           <label className="block text-sm text-navy-700 mb-1">Fichier .xlsx</label>
-          <input type="file" accept=".xlsx,.xls" onChange={handleFile} className="text-sm" />
+          <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} className="text-sm" />
         </div>
 
         {preview.length > 0 && (

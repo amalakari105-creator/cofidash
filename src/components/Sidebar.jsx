@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard qualité", module: "dashboard_qualite" },
   { to: "/dashboard-production", label: "Dashboard production", module: "dashboard_production" },
+  { to: "/dashboard-maintenance", label: "Dashboard maintenance", module: "dashboard_maintenance" },
   { to: "/import", label: "Import Excel", module: "import" },
   { to: "/organigramme", label: "Organigramme", module: null },
 ];
@@ -19,12 +20,12 @@ export default function Sidebar() {
   return (
     <aside className="w-60 shrink-0 bg-navy-900 text-navy-100 min-h-screen flex flex-col">
       <div className="px-5 py-6 flex flex-col items-center text-center gap-2">
-        <img src="/logo_coficab.svg" alt="Logo COFICAB" className="h-14 w-auto max-w-full" />
+        <img src="/logo_coficab.svg" alt="Logo" className="h-10 w-10" />
         <div>
           <p className="font-semibold text-lg tracking-tight leading-none">CofiDash</p>
-          <div className="navy-rule w-12 mx-auto my-2" />
-          <p className="text-xs text-navy-300">Suivi Qualité — COFTN</p>
+          <p className="text-xs text-navy-300 mt-1">Suivi Qualité — COFTN</p>
         </div>
+        <div className="navy-rule w-10 mt-1" />
       </div>
 
       <nav className="flex-1 px-3 pt-2 space-y-1">

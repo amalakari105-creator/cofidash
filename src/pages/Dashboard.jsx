@@ -23,14 +23,21 @@ function shiftForHour(h) {
 
 function isoWeekStart(dateStr) {
   const d = new Date(dateStr + "T00:00:00Z");
-  const day = d.getUTCDay() || 7; // dimanche -> 7
-  d.setUTCDate(d.getUTCDate() - day + 1); // recule jusqu'au lundi
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() - day + 1);
   return d.toISOString().slice(0, 10);
+}
+
+// Ce dashboard est spécifiquement dédié au trancannage — evenements_qualite
+// contient TOUS les types de défauts (import brut de MUL_COFTN), donc on
+// filtre ici sur ce seul défaut pour ne pas mélanger avec les autres causes.
+function isTrancannage(e) {
+  return e.code_defaut === "C07" || e.libelle_defaut === "Mauvais trancannage";
 }
 
 export default function Dashboard() {
   const [synthese, setSynthese] = useState([]);
-  const [events, setEvents] = useState([]);
+  const [allEvents, setAllEvents] = useState([]);
   const [production, setProduction] = useState([]);
   const [lignesCount, setLignesCount] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -50,14 +57,14 @@ export default function Dashboard() {
       const { data: evenements } = await supabase
         .from("evenements_qualite")
         .select(
-          "code_defaut, libelle_defaut, quantite_m, date_production, date_validation, referentiel_lignes!inner(en_perimetre)"
+          "ligne, n_serie_bobine, code_defaut, libelle_defaut, quantite_m, date_production, date_validation, referentiel_lignes!inner(en_perimetre)"
         )
         .eq("referentiel_lignes.en_perimetre", true)
         .limit(5000);
-      setEvents(evenements ?? []);
+      setAllEvents(evenements ?? []);
 
-      // Uniquement les vrais totaux journaliers (shift = null) pour ne pas
-      // compter en double avec la répartition par shift générée ensuite.
+      // Uniquement les vrais totaux journaliers (shift = null) — les lignes avec
+      // shift renseigné sont la répartition de démonstration, pas à additionner ici.
       const { data: productionData } = await supabase
         .from("production_journaliere")
         .select("date, quantite_produite_m, referentiel_lignes!inner(en_perimetre)")
@@ -76,35 +83,30 @@ export default function Dashboard() {
     load();
   }, []);
 
+  // Tout ce dashboard ne regarde que le trancannage.
+
+
   const monthsAvailable = synthese.length;
   const lastMonth = synthese[synthese.length - 1];
 
-  // Longueur moyenne d'une bobine (m), estimée depuis les événements qualité —
-  // sert à convertir un volume produit (m) en un nombre de bobines estimé.
-  const avgBobineLength = useMemo(() => {
-    const lengths = events.map((e) => Number(e.quantite_m)).filter((v) => v > 0);
-    if (!lengths.length) return null;
-    return lengths.reduce((sum, v) => sum + v, 0) / lengths.length;
-  }, [events]);
-
   const maxDate = useMemo(() => {
-    const dates = events.map((e) => e.date_production).filter(Boolean).sort();
+    const dates = allEvents.map((e) => e.date_production).filter(Boolean).sort();
     return dates.length ? dates[dates.length - 1] : null;
-  }, [events]);
+  }, [allEvents]);
 
   const { filteredEvents, windowLabel, windowFrom, windowTo } = useMemo(() => {
     if (!maxDate) return { filteredEvents: [], windowLabel: "", windowFrom: null, windowTo: null };
     const max = new Date(maxDate + "T00:00:00Z");
 
     if (period === "jour") {
-      const f = events.filter((e) => e.date_production === maxDate);
+      const f = allEvents.filter((e) => e.date_production === maxDate);
       return { filteredEvents: f, windowLabel: `journée du ${maxDate}`, windowFrom: maxDate, windowTo: maxDate };
     }
     if (period === "semaine") {
       const from = new Date(max);
       from.setUTCDate(from.getUTCDate() - 6);
       const fromStr = from.toISOString().slice(0, 10);
-      const f = events.filter((e) => e.date_production >= fromStr && e.date_production <= maxDate);
+      const f = allEvents.filter((e) => e.date_production >= fromStr && e.date_production <= maxDate);
       return {
         filteredEvents: f,
         windowLabel: `7 derniers jours (${fromStr} → ${maxDate})`,
@@ -114,24 +116,32 @@ export default function Dashboard() {
     }
     if (period === "mois") {
       const ym = maxDate.slice(0, 7);
-      const f = events.filter((e) => e.date_production?.slice(0, 7) === ym);
+      const f = allEvents.filter((e) => e.date_production?.slice(0, 7) === ym);
       return { filteredEvents: f, windowLabel: `mois en cours (${ym})`, windowFrom: `${ym}-01`, windowTo: maxDate };
     }
-    return { filteredEvents: events, windowLabel: "toute la période", windowFrom: null, windowTo: null };
-  }, [events, period, maxDate]);
+    return { filteredEvents: allEvents, windowLabel: "toute la période", windowFrom: null, windowTo: null };
+  }, [allEvents, period, maxDate]);
 
-  const causes = useMemo(() => {
-    const counts = {};
+  // Une bobine peut apparaître sur plusieurs lignes d'import (rare pour un même
+  // défaut, mais on compte les bobines distinctes pour rester exact).
+  function distinctBobines(list) {
+    return new Set(list.map((e) => e.n_serie_bobine)).size;
+  }
+
+  console.log(allEvents)
+
+  const topLignes = useMemo(() => {
+    const byLigne = {};
     filteredEvents.forEach((e) => {
-      const key = e.libelle_defaut || e.code_defaut;
-      counts[key] = (counts[key] || 0) + 1;
+      if (!byLigne[e.libelle_defaut]) byLigne[e.libelle_defaut] = [];
+      byLigne[e.libelle_defaut].push(e);
     });
-    return Object.entries(counts)
-      .map(([name, count]) => ({ name, count }))
+    return Object.entries(byLigne)
+      .map(([libelle_defaut, list]) => ({ name: libelle_defaut, count: distinctBobines(list) }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
   }, [filteredEvents]);
-  const causePrincipale = causes[0]?.name ?? "—";
+  const lignePrincipale = topLignes[0]?.name ?? "—";
 
   // Volume produit (m) dans la fenêtre courante, à partir de production_journaliere.
   const volumeInWindow = useMemo(() => {
@@ -141,79 +151,87 @@ export default function Dashboard() {
       .reduce((sum, p) => sum + Number(p.quantite_produite_m || 0), 0);
   }, [production, windowFrom, windowTo]);
 
-  // Taux NC : exact quand la synthèse mensuelle connaît Conforme/Total (mois/total) ;
-  // sinon estimé à partir du volume produit ÷ longueur moyenne d'une bobine.
-  const { tauxNC, tauxIsEstimate } = useMemo(() => {
+  
+
+  // Volume de câble en trancannage dans la fenêtre (m), pour un vrai ratio volume/volume.
+  const ncVolumeInWindow = useMemo(
+    () => filteredEvents.reduce((sum, e) => sum + Number(e.quantite_m || 0), 0),
+    [filteredEvents]
+  );
+
+  // Taux NC : la synthèse mensuelle (Conforme réel, issue de la QA) fait foi quand
+  // elle couvre la période (Mois/Total). Sinon (Jour/Semaine), ratio réel
+  // volume défectueux ÷ volume produit — les deux mesurés en mètres, aucune
+  // estimation. "Shift" reste "—" : la répartition horaire de production_journaliere
+  // est une donnée de démonstration, pas un vrai décompte, donc pas fiable comme
+  // dénominateur.
+  const { tauxNC, tauxSource } = useMemo(() => {
     if (period === "mois" && maxDate) {
       const ym = maxDate.slice(0, 7);
       const row = synthese.find((s) => `${s.annee}-${String(s.mois_num).padStart(2, "0")}` === ym);
-      if (row?.taux_nc_pct != null) return { tauxNC: row.taux_nc_pct, tauxIsEstimate: false };
+      if (row?.taux_nc_pct != null) return { tauxNC: row.taux_nc_pct, tauxSource: "synthese" };
     }
-    if (period === "total" || period === "shift") {
+    if (period === "total") {
       const known = synthese.filter((s) => s.total != null);
       if (known.length) {
         const totalNC = known.reduce((sum, s) => sum + s.non_conforme, 0);
         const totalAll = known.reduce((sum, s) => sum + s.total, 0);
-        if (totalAll) return { tauxNC: (totalNC / totalAll) * 100, tauxIsEstimate: false };
+        if (totalAll) return { tauxNC: (totalNC / totalAll) * 100, tauxSource: "synthese" };
       }
     }
-    // Estimation via volume produit ÷ longueur moyenne de bobine
-    if (avgBobineLength && volumeInWindow) {
-      const estBobines = volumeInWindow / avgBobineLength;
-      if (estBobines > 0) {
-        return { tauxNC: (filteredEvents.length / estBobines) * 100, tauxIsEstimate: true };
-      }
+    if (period !== "shift" && volumeInWindow) {
+      return { tauxNC: (ncVolumeInWindow / volumeInWindow) * 100, tauxSource: "volume" };
     }
-    return { tauxNC: null, tauxIsEstimate: false };
-  }, [period, maxDate, synthese, avgBobineLength, volumeInWindow, filteredEvents]);
+    return { tauxNC: null, tauxSource: null };
+  }, [period, maxDate, synthese, volumeInWindow, ncVolumeInWindow]);
 
   const nonConformesCount =
     period === "mois" && lastMonth?.non_conforme != null && maxDate?.slice(0, 7) === `${lastMonth.annee}-${String(lastMonth.mois_num).padStart(2, "0")}`
       ? lastMonth.non_conforme
-      : filteredEvents.length;
+      : distinctBobines(filteredEvents);
 
   const chartData = useMemo(() => {
     if (period === "jour") {
-      const counts = {};
-      events.forEach((e) => {
+      const byDate = {};
+      allEvents.forEach((e) => {
         if (!e.date_production) return;
-        counts[e.date_production] = (counts[e.date_production] || 0) + 1;
+        (byDate[e.date_production] ||= []).push(e);
       });
-      return Object.entries(counts)
+      return Object.entries(byDate)
         .sort(([a], [b]) => (a > b ? 1 : -1))
         .slice(-30)
-        .map(([date, count]) => ({ label: date.slice(5), non_conforme: count }));
+        .map(([date, list]) => ({ label: date.slice(5), non_conforme: distinctBobines(list) }));
     }
     if (period === "semaine") {
-      const counts = {};
-      events.forEach((e) => {
+      const byWeek = {};
+      allEvents.forEach((e) => {
         if (!e.date_production) return;
         const week = isoWeekStart(e.date_production);
-        counts[week] = (counts[week] || 0) + 1;
+        (byWeek[week] ||= []).push(e);
       });
-      return Object.entries(counts)
+      return Object.entries(byWeek)
         .sort(([a], [b]) => (a > b ? 1 : -1))
         .slice(-16)
-        .map(([week, count]) => ({ label: week.slice(5), non_conforme: count }));
+        .map(([week, list]) => ({ label: week.slice(5), non_conforme: distinctBobines(list) }));
     }
     if (period === "shift") {
-      const counts = { [SHIFT_LABELS[0]]: 0, [SHIFT_LABELS[1]]: 0, [SHIFT_LABELS[2]]: 0 };
-      events.forEach((e) => {
+      const byShift = { [SHIFT_LABELS[0]]: [], [SHIFT_LABELS[1]]: [], [SHIFT_LABELS[2]]: [] };
+      allEvents.forEach((e) => {
         if (!e.date_validation) return;
         const h = new Date(e.date_validation).getUTCHours();
-        counts[shiftForHour(h)] += 1;
+        byShift[shiftForHour(h)].push(e);
       });
-      return SHIFT_LABELS.map((label) => ({ label, non_conforme: counts[label] }));
+      return SHIFT_LABELS.map((label) => ({ label, non_conforme: distinctBobines(byShift[label]) }));
     }
     return synthese.map((row) => ({ label: row.periode, non_conforme: row.non_conforme }));
-  }, [period, events, synthese]);
+  }, [period, allEvents, synthese]);
 
   const chartTitle = {
-    jour: "Non-conformités par jour (30 derniers jours avec données)",
-    semaine: "Non-conformités par semaine (16 dernières semaines)",
+    jour: "Trancannage par jour (30 derniers jours avec données)",
+    semaine: "Trancannage par semaine (16 dernières semaines)",
     mois: "Évolution mensuelle des non-conformités trancannage",
     total: "Évolution mensuelle des non-conformités trancannage",
-    shift: "Répartition des non-conformités par shift",
+    shift: "Répartition du trancannage par shift",
   }[period];
 
   if (loading) return <div className="p-8 text-navy-500">Chargement des KPIs…</div>;
@@ -229,21 +247,28 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <KpiCard
-          label={`Taux NC${tauxIsEstimate ? " (estimé)" : ""} — ${windowLabel}`}
+          label={`Taux NC — ${windowLabel}`}
           value={tauxNC != null ? tauxNC.toFixed(2) : "—"}
           unit={tauxNC != null ? "%" : undefined}
           tone={tauxNC != null ? (tauxNC > 0.7 ? "danger" : "success") : "neutral"}
         />
         <KpiCard label={`Non-conformes — ${windowLabel}`} value={nonConformesCount} />
-        <KpiCard label="Cause principale" value={causePrincipale} />
+        <KpiCard label="Ligne principale" value={lignePrincipale} />
         <KpiCard label="Lignes en périmètre" value={lignesCount ?? "—"} />
       </div>
 
-      {tauxIsEstimate && (
+      {tauxSource === "volume" && (
         <p className="text-xs text-navy-400">
-          Taux NC estimé : volume produit sur la période ÷ longueur moyenne d'une bobine (
-          {avgBobineLength ? `${Math.round(avgBobineLength).toLocaleString("fr-FR")} m` : "—"}). Le
-          niveau Mois/Total utilise le vrai décompte Conforme quand il est connu.
+          Taux NC en volume : mètres de câble en trancannage ÷ mètres produits sur la même période
+          (source : production_journaliere). Mois/Total utilisent le décompte Conforme officiel
+          quand il est disponible.
+        </p>
+      )}
+      {period === "shift" && (
+        <p className="text-xs text-navy-400">
+          Taux NC non affiché par shift : la répartition horaire de la production est une donnée
+          de démonstration, pas un vrai décompte — l'utiliser comme dénominateur donnerait un taux
+          trompeur.
         </p>
       )}
 
@@ -258,16 +283,21 @@ export default function Dashboard() {
             <Bar dataKey="non_conforme" fill="#4C63AA" radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
+        {chartData.length === 0 && (
+          <p className="text-xs text-navy-400 mt-2">
+            Aucune donnée à afficher — vérifie que la table correspondante est bien importée.
+          </p>
+        )}
       </div>
 
       <div className="bg-white rounded-card border border-navy-100 p-5">
-        <p className="text-sm font-medium text-navy-700 mb-4">Top 5 défaut — {windowLabel}</p>
+        <p className="text-sm font-medium text-navy-700 mb-4">Top lignes — {windowLabel}</p>
         <ul className="space-y-2">
-          {causes.length === 0 && <li className="text-sm text-navy-400">Aucune donnée sur cette période.</li>}
-          {causes.map((c) => (
-            <li key={c.name} className="flex justify-between text-sm border-b border-navy-100 pb-2">
-              <span className="text-navy-700">{c.name}</span>
-              <span className="mono-num">{c.count}</span>
+          {topLignes.length === 0 && <li className="text-sm text-navy-400">Aucune donnée sur cette période.</li>}
+          {topLignes.map((l) => (
+            <li key={l.name} className="flex justify-between text-sm border-b border-navy-100 pb-2">
+              <span className="text-navy-700 mono-num">{l.name}</span>
+              <span className="mono-num">{l.count}</span>
             </li>
           ))}
         </ul>

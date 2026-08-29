@@ -6,6 +6,7 @@ import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import DashboardProduction from "./pages/DashboardProduction";
+import Maintenance from "./pages/Maintenance";
 import ImportExcel from "./pages/ImportExcel";
 import MonCompte from "./pages/MonCompte";
 import Users from "./pages/admin/Users";
@@ -40,6 +41,16 @@ export default function App() {
             }
           />
           <Route
+            path="/dashboard-maintenance"
+            element={
+              <ProtectedRoute moduleId="dashboard_maintenance">
+                <Layout>
+                  <Maintenance />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/import"
             element={
               <ProtectedRoute moduleId="import">
@@ -55,6 +66,17 @@ export default function App() {
               <ProtectedRoute>
                 <Layout>
                   <MonCompte />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/organigramme"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <Organigramme />
                 </Layout>
               </ProtectedRoute>
             }
@@ -80,16 +102,6 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-          <Route
-  path="/organigramme"
-  element={
-    <ProtectedRoute>
-      <Layout>
-        <Organigramme />
-      </Layout>
-    </ProtectedRoute>
-  }
-/>
 
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>

@@ -29,7 +29,7 @@ export default function Login() {
     <div className="min-h-screen bg-navy-900 flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <img src="/logo_coficab.svg" alt="Logo COFICAB" className="h-14 w-auto mx-auto mb-3" />
+          <img src="/logo_coficab.svg" alt="Logo" className="h-14 w-14 mx-auto mb-3" />
           <p className="text-navy-100 text-2xl font-semibold tracking-tight">CofiDash</p>
           <p className="text-navy-400 text-sm mt-1">Suivi Qualité — COFTN</p>
           <div className="navy-rule w-12 mx-auto mt-4" />

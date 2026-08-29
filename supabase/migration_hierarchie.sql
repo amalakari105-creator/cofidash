@@ -35,20 +35,13 @@ create unique index if not exists one_manager_per_department
   on profiles(department_id) where role = 'manager';
 
 -- ---------- 3. Fonctions utilitaires pour les policies ----------
-create or replace function is_super_admin()
-returns boolean language sql stable security definer set search_path = public as $$
-  select exists (
-    select 1 from profiles where id = auth.uid() and role = 'super_admin'
-  );
-$$;
-
 create or replace function is_manager()
-returns boolean language sql stable security definer set search_path = public as $$
+returns boolean language sql stable as $$
   select exists (select 1 from profiles where id = auth.uid() and role = 'manager');
 $$;
 
 create or replace function my_department()
-returns text language sql stable security definer set search_path = public as $$
+returns text language sql stable as $$
   select department_id from profiles where id = auth.uid();
 $$;
 

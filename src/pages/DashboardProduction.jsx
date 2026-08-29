@@ -23,9 +23,13 @@ function isoWeekStart(dateStr) {
   return d.toISOString().slice(0, 10);
 }
 
+function isoToday(dateStr) {
+  const d = new Date(dateStr + "T00:00:00Z");
+  return d.toISOString().slice(0, 10);
+}
+
 export default function DashboardProduction() {
-  const [rows, setRows] = useState([]); // totaux journaliers réels (shift = null)
-  const [shiftRows, setShiftRows] = useState([]); // répartition par shift (démo)
+  const [rows, setRows] = useState([]); // totaux journaliers réels
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState("total");
 
@@ -34,12 +38,11 @@ export default function DashboardProduction() {
       setLoading(true);
       const { data } = await supabase
         .from("production_journaliere")
-        .select("ligne, date, quantite_produite_m, shift, est_donnee_demo, referentiel_lignes!inner(en_perimetre)")
+        .select("ligne, date, quantite_produite_m, referentiel_lignes!inner(en_perimetre)")
         .eq("referentiel_lignes.en_perimetre", true)
+        .is("shift", null)
         .order("date", { ascending: true });
-
-      setRows((data ?? []).filter((r) => !r.shift));
-      setShiftRows((data ?? []).filter((r) => r.shift));
+      setRows(data ?? []);
       setLoading(false);
     }
     load();
@@ -50,7 +53,12 @@ export default function DashboardProduction() {
     return months.size;
   }, [rows]);
 
-  const byDay = useMemo(() => {
+  const totalVolumeAllTime = useMemo(
+    () => rows.reduce((sum, r) => sum + Number(r.quantite_produite_m || 0), 0),
+    [rows]
+  );
+
+  const byTotal = useMemo(() => {
     const totals = {};
     rows.forEach((r) => {
       totals[r.date] = (totals[r.date] || 0) + Number(r.quantite_produite_m || 0);
@@ -59,6 +67,18 @@ export default function DashboardProduction() {
       .sort(([a], [b]) => (a > b ? 1 : -1))
       .map(([date, total]) => ({ date, total }));
   }, [rows]);
+
+  //  const byDay = useMemo(() => {
+  //   const totals = {};
+  //   rows.forEach((r) => {
+  //     if (!r.date) return;
+  //     const day = isoToday();
+  //     console.log(r.date, day, r.quantite_produite_m);
+  //     totals[day] = (totals[day] || 0) + Number(r.quantite_produite_m || 0);
+  //   });
+  //   return Object.entries(totals)
+  //     .map(([day, total]) => ({ date: day, total }));
+  // }, [rows]);
 
   const byWeek = useMemo(() => {
     const totals = {};
@@ -72,40 +92,58 @@ export default function DashboardProduction() {
       .map(([week, total]) => ({ date: week, total }));
   }, [rows]);
 
-  const byShift = useMemo(() => {
-    const totals = { [SHIFT_ORDER[0]]: 0, [SHIFT_ORDER[1]]: 0, [SHIFT_ORDER[2]]: 0 };
-    shiftRows.forEach((r) => {
-      if (totals[r.shift] == null) return;
-      totals[r.shift] += Number(r.quantite_produite_m || 0);
+  const byMonth = useMemo(() => {
+    const totals = {};
+    rows.forEach((r) => {
+      if (!r.date) return;
+      const month = r.date.slice(0, 7);
+      totals[month] = (totals[month] || 0) + Number(r.quantite_produite_m || 0);
     });
-    return SHIFT_ORDER.map((label) => ({ date: label, total: totals[label] }));
-  }, [shiftRows]);
+    return Object.entries(totals)
+      .sort(([a], [b]) => (a > b ? 1 : -1))
+      .map(([month, total]) => ({ date: month, total }));
+  }, [rows]);
 
-  const hasShiftData = shiftRows.length > 0;
-  const shiftIsDemo = shiftRows.some((r) => r.est_donnee_demo);
+  // "Par shift" : pas d'horodatage réel par poste dans l'export production
+  // (contrairement à la qualité) — on répartit donc le total en 3 parts égales,
+  // clairement présenté comme tel, plutôt que d'inventer une pondération.
+  const byShift = useMemo(() => {
+    const third = Math.round(totalVolumeAllTime / 3);
+    return SHIFT_ORDER.map((label) => ({ date: label, total: third }));
+  }, [totalVolumeAllTime]);
 
-  // "Semaine" limite les KPIs à la semaine la plus récente ; "Total" garde tout l'historique ;
-  // "Shift" n'a pas de fenêtre temporelle propre, il regroupe autrement.
   const scopedRows = useMemo(() => {
-    if (period !== "semaine" || !rows.length) return rows;
-    const lastWeek = isoWeekStart(rows[rows.length - 1].date);
-    return rows.filter((r) => isoWeekStart(r.date) === lastWeek);
+    if (!rows.length) return rows;
+    if (period === "semaine") {
+      const lastWeek = isoWeekStart(rows[rows.length - 1].date);
+      return rows.filter((r) => isoWeekStart(r.date) === lastWeek);
+    }
+    if (period === "mois") {
+      const lastMonth = rows[rows.length - 1].date?.slice(0, 7);
+      return rows.filter((r) => r.date?.slice(0, 7) === lastMonth);
+    }
+    return rows; // total et shift : tout l'historique
   }, [rows, period]);
 
   const scopedVolume =
     period === "shift"
-      ? shiftRows.reduce((sum, r) => sum + Number(r.quantite_produite_m || 0), 0)
+      ? totalVolumeAllTime
       : scopedRows.reduce((sum, r) => sum + Number(r.quantite_produite_m || 0), 0);
   const scopedDays = new Set(scopedRows.map((r) => r.date)).size;
   const avgPerDay = scopedDays ? Math.round(scopedVolume / scopedDays) : 0;
-
-  const chartData = period === "semaine" ? byWeek : period === "shift" ? byShift : byDay;
+  const chartData = { semaine: byWeek, mois: byMonth, shift: byShift, total: byTotal }[period];
   const chartTitle = {
     semaine: "Production par semaine (mètres)",
-    shift: "Production par shift (mètres)",
+    mois: "Production par mois (mètres)",
+    shift: "Production par shift (mètres) — total ÷ 3",
     total: "Production journalière (mètres)",
   }[period];
-  const windowLabel = { semaine: "semaine en cours", shift: "toute la période", total: "toute la période" }[period];
+  const windowLabel = {
+    semaine: "semaine en cours",
+    mois: "mois en cours",
+    shift: "toute la période",
+    total: "toute la période",
+  }[period];
 
   if (loading) return <div className="p-8 text-navy-500">Chargement…</div>;
 
@@ -116,7 +154,7 @@ export default function DashboardProduction() {
         <p className="text-sm text-navy-500 mt-1">{monthsAvailable} mois de données disponibles</p>
       </div>
 
-      <FilterBar monthsAvailable={monthsAvailable} shiftAvailable={hasShiftData} onChange={setPeriod} />
+      <FilterBar monthsAvailable={monthsAvailable} todayAvailable={false} shiftAvailable onChange={setPeriod} />
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         <KpiCard label={`Volume — ${windowLabel}`} value={scopedVolume.toLocaleString("fr-FR")} unit="m" />
@@ -127,15 +165,7 @@ export default function DashboardProduction() {
       <div className="bg-white rounded-card border border-navy-100 p-5">
         <p className="text-sm font-medium text-navy-700 mb-4">{chartTitle}</p>
         <ResponsiveContainer width="100%" height={280}>
-          {period === "semaine" || period === "shift" ? (
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#EDF0FA" />
-              <XAxis dataKey="date" tick={{ fontSize: 10 }} interval={0} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Bar dataKey="total" fill="#4C63AA" radius={[3, 3, 0, 0]} />
-            </BarChart>
-          ) : (
+          {period === "total" ? (
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#EDF0FA" />
               <XAxis dataKey="date" tick={{ fontSize: 10 }} interval={2} />
@@ -143,18 +173,30 @@ export default function DashboardProduction() {
               <Tooltip />
               <Line type="monotone" dataKey="total" stroke="#4C63AA" strokeWidth={2} dot={false} />
             </LineChart>
+          ) : (
+            <BarChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#EDF0FA" />
+              <XAxis dataKey="date" tick={{ fontSize: 10 }} interval={period === "shift" ? 0 : undefined} />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip />
+              <Bar dataKey="total" fill="#4C63AA" radius={[3, 3, 0, 0]} />
+            </BarChart>
           )}
         </ResponsiveContainer>
+        {chartData?.length === 0 && (
+          <p className="text-xs text-navy-400 mt-2">
+            Aucune donnée à afficher — vérifie que production_journaliere est bien importée.
+          </p>
+        )}
       </div>
 
-      {period === "shift" && shiftIsDemo && (
+      {period === "shift" && (
         <p className="text-xs text-navy-400">
-          Données de démonstration : l'export production actuel ne contient pas d'horodatage réel par
-          poste, cette répartition est une estimation (35% / 35% / 30%) des totaux journaliers. À
-          remplacer dès qu'un vrai horodatage par shift est disponible côté source.
+          Répartition de démonstration : le total toute période est simplement divisé par 3 — il
+          n'y a pas encore d'horodatage réel par poste dans l'export production. À remplacer dès
+          que cette donnée existe côté source.
         </p>
       )}
-      
     </div>
   );
 }

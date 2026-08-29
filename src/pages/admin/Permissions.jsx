@@ -4,6 +4,7 @@ import { supabase } from "../../lib/supabaseClient";
 const MODULES = [
   { id: "dashboard_qualite", label: "Dashboard qualité" },
   { id: "dashboard_production", label: "Dashboard production" },
+  { id: "dashboard_maintenance", label: "Dashboard maintenance" },
   { id: "import", label: "Import Excel" },
 ];
 
